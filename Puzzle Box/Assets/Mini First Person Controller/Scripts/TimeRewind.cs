@@ -9,17 +9,23 @@ public class TimeRewind : MonoBehaviour
     public float maxRewindTime = 8f; // 8 seconds of rewind for experimentation
     public KeyCode rewindKey = KeyCode.R; // Hold 'R' to rewind
     public ParticleSystem rewindEffect; // Optional: Add a glitchy particle effect
-  
+    public float ghostLifetime = 3f; // How long ghost lasts in seconds
+    private float ghostTimer; // Tracks time left
+    public float rewindCooldown = 5f; // Cooldown time in seconds
+    private float cooldownTimer; // Tracks time left until next rewind
+
 
     // Internal data
     private List<PlayerState> recordedStates = new List<PlayerState>();
     private bool isRewinding = false;
     private FirstPersonMovement fpController; // Replace FirstPersonController
+    public UnityEngine.UI.Image cooldownIcon; // Assign in Inspector
 
     // Where the player’s ghost shows from
     private Vector3 lastPositionBeforeRewind; // Stores the player's position before rewinding
     private GameObject currentMarker; // Keeps track of the spawned marker
     private Quaternion lastRotationBeforeRewind; // To store the player's facing direction
+
 
    
     // Store position, rotation, and timestamp
@@ -57,7 +63,6 @@ public class TimeRewind : MonoBehaviour
 
     void Update()
     {
-        // Hold to rewind, release to stop
         if (Input.GetKeyDown(rewindKey))
         {
             StartRewind();
@@ -65,6 +70,24 @@ public class TimeRewind : MonoBehaviour
         if (Input.GetKeyUp(rewindKey))
         {
             StopRewind();
+        }
+        if (cooldownTimer > 0)
+        {
+            cooldownTimer -= Time.deltaTime;
+        }
+        if (cooldownIcon != null)
+        {
+            cooldownIcon.fillAmount = cooldownTimer / rewindCooldown; // 1 to 0 as it counts down
+        }
+        if (currentMarker != null)
+        {
+            Debug.Log("Ghost timer: " + ghostTimer); // Keep for now—remove later if you want
+            ghostTimer -= Time.deltaTime;
+            if (ghostTimer <= 0)
+            {
+                Destroy(currentMarker);
+                currentMarker = null;
+            }
         }
     }
 
@@ -88,8 +111,8 @@ public class TimeRewind : MonoBehaviour
             PlayerState state = recordedStates[recordedStates.Count - 1];
 
             // Smoothly move to the position and rotation
-            transform.position = Vector3.Lerp(transform.position, state.position, Time.fixedDeltaTime * 10f); // Smooth transition
-            transform.rotation = Quaternion.Slerp(transform.rotation, state.rotation, Time.fixedDeltaTime * 10f); // Smooth rotation
+            transform.position = Vector3.Lerp(transform.position, state.position, Time.fixedDeltaTime * 20f); // Smooth transition
+            transform.rotation = Quaternion.Slerp(transform.rotation, state.rotation, Time.fixedDeltaTime * 20f); // Smooth transition
             recordedStates.RemoveAt(recordedStates.Count - 1); // Remove used state
         }
         else
@@ -100,20 +123,48 @@ public class TimeRewind : MonoBehaviour
 
     void StartRewind()
     {
-        if (recordedStates.Count > 0) // Only rewind if there's something to rewind to
+        if (recordedStates.Count > 0 && cooldownTimer <= 0)
         {
-            lastPositionBeforeRewind = transform.position; // Saves Posistions
-            lastRotationBeforeRewind = transform.rotation; // Saves Positions
-            isRewinding = true;
-            fpController.enabled = false; // Disable movement
-            if (rewindEffect != null) rewindEffect.Play(); // Start glitch effect
+            if (currentMarker != null)
+            {
+                Destroy(currentMarker);
+                currentMarker = null;
+            }
+            lastPositionBeforeRewind = transform.position;
+            lastRotationBeforeRewind = transform.rotation;
+            if (currentMarker == null)
+            {
+                currentMarker = Instantiate(gameObject, lastPositionBeforeRewind, lastRotationBeforeRewind);
+                Camera cloneCamera = currentMarker.GetComponentInChildren<Camera>();
+                if (cloneCamera != null) cloneCamera.enabled = false;
+                TimeRewind cloneRewind = currentMarker.GetComponent<TimeRewind>();
+                if (cloneRewind != null) cloneRewind.enabled = false;
+                foreach (MonoBehaviour script in currentMarker.GetComponents<MonoBehaviour>())
+                {
+                    script.enabled = false;
+                }
+                foreach (Renderer rend in currentMarker.GetComponentsInChildren<Renderer>())
+                {
+                    Material mat = rend.material;
+                    mat.color = new Color(mat.color.r, mat.color.g, mat.color.b, 0.5f);
+                }
+                ghostTimer = ghostLifetime;
+            }
+            Debug.Log("Recorded states count: " + recordedStates.Count);
+            PlayerState oldestState = recordedStates[0];
+            Debug.Log("Snapping to: " + oldestState.position);
+            transform.position = oldestState.position;
+            transform.rotation = oldestState.rotation;
+            recordedStates.Clear();
+            cooldownTimer = rewindCooldown;
+            fpController.enabled = false;
+            if (rewindEffect != null) rewindEffect.Play();
         }
     }
 
     void StopRewind()
     {
-        isRewinding = false;
-        fpController.enabled = true; // Re-enable movement
-        if (rewindEffect != null) rewindEffect.Stop(); // Stop glitch effect
+        fpController.enabled = true;
+        if (rewindEffect != null) rewindEffect.Stop();
     }
 }
